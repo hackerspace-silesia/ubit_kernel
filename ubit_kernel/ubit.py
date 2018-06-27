@@ -14,12 +14,29 @@ def find_microbit():
         if port.vid == MICROBIT_VID and port.pid == MICROBIT_PID:
             return port.device
 
+_connection = None
+_connection_counts = 0
 def connect():
     """
     Returns a pySerial Serial object to talk to the microbit
     """
+    global _connection, _connection_counts
+    if _connection is not None:
+        _connection_counts += 1
+        return _connection
     s = Serial(find_microbit(), BAUDRATE, parity=PARITY)
     s.write(b'\x03\x01') # Ctrl-C: interrupt, Ctrl-A: switch to raw REPL
     s.read_until(b'raw REPL')
     s.read_until(b'\r\n>') # Wait for prompt
+
+    _connection_counts += 1
+    _connection = s
     return s
+
+
+def disconnect():
+    global _connection, _connection_counts
+    _connection_counts -= 1
+    if connection_counts <= 0:
+        _connection.close()
+        _connection = None

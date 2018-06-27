@@ -2,11 +2,12 @@ import ast
 import re
 import sys
 import time
+import uuid
 
 from ipykernel.kernelbase import Kernel
-from .ubit import connect
+from .ubit import connect, disconnect
 
-__version__ = '0.3'
+__version__ = '0.4'
 
 class MicrobitKernel(Kernel):
     implementation = 'ubit_kernel'
@@ -31,7 +32,9 @@ class MicrobitKernel(Kernel):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        self.uuid = uuid.uuid4().hex
         self.serial = connect()
+
 
     def run_code(self, code):
         '''Run a string of code, return strings for stdout and stderr'''
@@ -88,3 +91,9 @@ class MicrobitKernel(Kernel):
             return {'matches': [],
                     'cursor_start': cursor_pos, 'cursor_end': cursor_pos,
                     'metadata': {}, 'status': 'ok'}
+
+    def do_shutdown(self, restart):
+        disconnect()
+        return {
+            'restart': restart,
+        }

@@ -29,29 +29,62 @@ class MicrobitKernel(Kernel):
     ]
 
     banner = "Welcome to MicroPython on the BBC micro:bit"
+    INIT_CODE = '''try:
+    g['UUID'] = {}
+except NameError:
+    g = {'UUID': {}}
+try:
+    l['UUID'] = {}
+except NameError:
+    l = {'UUID': {}}
+'''
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.uuid = uuid.uuid4().hex
         self.serial = connect()
 
+        out, err = self.run_code(self.INIT_CODE.replace('UUID', self.uuid))
+        self.send_response(self.iopub_socket, 'stream', {
+            'name': 'stdout',
+            'text': 'Kernel connected to microbit, uuid: %s' % self.uuid,
+        })
 
     def run_code(self, code):
         '''Run a string of code, return strings for stdout and stderr'''
-        self.serial.write(code.encode('utf-8') + b'\x04')
-        result = bytearray()
-        while not result.endswith(b'\x04>'):
-            time.sleep(0.1)
-            result.extend(self.serial.read_all())
-        #print('Read', repr(result), file=sys.__stderr__)
+        try:
+            self.serial.write(b'\x03' + code.encode('utf-8') + b'\x04')
+            result = bytearray()
+            while not result.endswith(b'\x04>'):
+                time.sleep(0.1)
+                result.extend(self.serial.read_all())
 
-        assert result.startswith(b'OK')
-        out, err = result[2:-2].split(b'\x04', 1)
-        return out.decode('utf-8', 'replace'), err.decode('utf-8', 'replace')
+            return self._parse_result(result)
+
+        except KeyboardInterrupt:
+            self.serial.write(b'\x03')
+            time.sleep(0.1)
+            self.serial.reset_output_buffer()
+            self.serial.reset_input_buffer()
+            return self._parse_result(result)
+
+    def _parse_result(self, result):
+        if result.startswith(b'OK'):
+            results = result[2:-2].split(b'\x04', 1)
+            if len(results) == 2:
+                out, err = results
+            else:
+                out, err = result, b''
+            return out.decode('utf-8', 'replace'), err.decode('utf-8', 'replace')
+        else:
+            return '', 'something is not ok'
 
     def do_execute(self, code, silent, store_history=True,
                    user_expressions=None, allow_stdin=False):
-        out, err = self.run_code(code)
+        real_code = 'exec({code!r}, g[{uuid!r}], l[{uuid!r}])'
+        formatted_code = real_code.format(code=code, uuid=self.uuid)
+        print(formatted_code)
+        out, err = self.run_code(formatted_code)
         if out:
             self.send_response(self.iopub_socket, 'stream', {
                 'name': 'stdout',
@@ -93,6 +126,8 @@ class MicrobitKernel(Kernel):
                     'metadata': {}, 'status': 'ok'}
 
     def do_shutdown(self, restart):
+        code = 'del g[{uuid!r}]; del l[{uuid!r}]'
+        out, err = self.run_code(code.format(uuid=self.uuid))
         disconnect()
         return {
             'restart': restart,
